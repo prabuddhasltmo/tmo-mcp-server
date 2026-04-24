@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "tmo-api": {
+      "command": "node",
+      "args": ["/Users/prabuddhalakshminarayana/Documents/TMO Repos/TmoMcpServer/dist/index.js"],
+      "env": {
+        "TMO_TOKEN": "your_api_token_here",
+        "TMO_DATABASE": "your_database_name_here",
+        "TMO_REGION": "us"
+      }
+    }
+  }
+}

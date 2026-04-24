@@ -1,0 +1,10 @@
+{
+  "tmo-api": {
+    "type": "http",
+    "url": "https://YOUR_DEPLOYED_URL/mcp",
+    "headers": {
+      "x-tmo-token": "${TMO_TOKEN}",
+      "x-tmo-database": "${TMO_DATABASE}"
+    }
+  }
+}

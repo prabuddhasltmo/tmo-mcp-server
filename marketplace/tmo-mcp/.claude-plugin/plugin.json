@@ -1,0 +1,8 @@
+{
+  "name": "TMO Test MCP",
+  "description": "The Mortgage Office API — query loans, lenders, payments, properties, escrow, insurance, capital pools, and more directly from Claude.",
+  "author": {
+    "name": "Your Company",
+    "email": "support@yourcompany.com"
+  }
+}

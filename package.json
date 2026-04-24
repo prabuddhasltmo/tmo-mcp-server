@@ -1,0 +1,27 @@
+{
+  "name": "tmo-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for The Mortgage Office (TMO) external APIs",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:http": "node dist/http-server.js",
+    "start:oauth": "node dist/http-server-oauth.js",
+    "dev:oauth": "tsx src/http-server-oauth.ts",
+    "dev": "tsx src/index.ts",
+    "dev:http": "tsx src/http-server.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "express": "^4.21.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  }
+}
