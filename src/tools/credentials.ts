@@ -5,83 +5,26 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 export function registerCredentialsTools(server: McpServer, client: TmoClient) {
 
-  // ── Get current credentials ────────────────────────────────────────────────
-
-  server.tool(
-    "tmo_get_credentials",
-    "Show the active TMO API credentials (token is masked for security)",
-    {},
-    async () => {
-      const cfg = client.getPublicConfig();
-      return {
-        content: [{
-          type: "text",
-          text: [
-            "**Active TMO credentials**",
-            `  Token:    ${cfg.token}`,
-            `  Database: ${cfg.database}`,
-            `  Region:   ${cfg.region}`,
-            `  Base URL: ${cfg.baseUrl}`,
-          ].join("\n"),
-        }],
-      };
-    }
-  );
-
-  // ── Set credentials manually ───────────────────────────────────────────────
-
-  server.tool(
-    "tmo_set_credentials",
-    "Update the active TMO API token, database, and/or region without restarting the server. "
-    + "Only the fields you supply are changed; omit a field to keep its current value.",
-    {
-      token:    z.string().optional().describe("API token assigned by Applied Business Software"),
-      database: z.string().optional().describe("Company database name (e.g. '001-5533-000-AM Team')"),
-      region:   z.enum(["us", "ca", "aus"]).optional().describe("API region (default: us)"),
-    },
-    async ({ token, database, region }) => {
-      if (!token && !database && !region) {
-        return { content: [{ type: "text", text: "⚠️  No fields provided — nothing changed." }] };
-      }
-
-      client.updateConfig({ token, database, region });
-      const cfg = client.getPublicConfig();
-
-      return {
-        content: [{
-          type: "text",
-          text: [
-            "✅ Credentials updated.",
-            `  Token:    ${cfg.token}`,
-            `  Database: ${cfg.database}`,
-            `  Region:   ${cfg.region}`,
-            `  Base URL: ${cfg.baseUrl}`,
-          ].join("\n"),
-        }],
-      };
-    }
-  );
-
   // ── List available profiles ────────────────────────────────────────────────
 
   server.tool(
     "tmo_list_profiles",
-    "List all credential profiles available to switch to. "
+    "List all credential profiles available. "
+    + "Profiles are defined in the TMO_PROFILES environment variable. "
     + "The built-in 'sandbox' profile is always present. "
-    + "Additional profiles are defined via env vars: TMO_TOKEN_<NAME> and TMO_DATABASE_<NAME>.",
+    + "Call this to discover profile names before switching.",
     {},
     async () => {
-      const profiles = getProfiles();
+      const profiles   = getProfiles();
+      const activeName = client.getActiveProfileName();
       const lines = profiles.map(p => {
-        const t = p.token;
+        const t      = p.token;
         const masked = t.length <= 3 ? "*".repeat(t.length) : t.slice(0, 2) + "*".repeat(t.length - 2);
-        return `  • ${p.name.padEnd(16)}  Token: ${masked.padEnd(12)}  Database: ${p.database}  Region: ${p.region}`;
+        const active = p.name === activeName ? " ◀ active" : "";
+        return `  ${p.name === activeName ? "▶" : " "} ${p.name.padEnd(16)}  Token: ${masked.padEnd(12)}  Database: ${p.database}  Region: ${p.region}${active}`;
       });
       return {
-        content: [{
-          type: "text",
-          text: ["**Available profiles**\n", ...lines].join("\n"),
-        }],
+        content: [{ type: "text", text: ["**Available profiles**\n", ...lines].join("\n") }],
       };
     }
   );
@@ -90,26 +33,26 @@ export function registerCredentialsTools(server: McpServer, client: TmoClient) {
 
   server.tool(
     "tmo_switch_profile",
-    "Switch to a named credential profile in one step. "
-    + "Use 'tmo_list_profiles' to see what profiles are available. "
-    + "The built-in profile name 'sandbox' always works (Token=TMO, Database=API Sandbox).",
+    "Switch the active TMO credentials to a named profile. "
+    + "ALWAYS call this before any data tool (loans, lenders, payments, etc.) "
+    + "when the user mentions a specific database or environment (e.g. 'QA', 'prod', 'sandbox'). "
+    + "Profile names come from TMO_PROFILES env var — use tmo_list_profiles to see them. "
+    + "The switch is instant; no restart needed.",
     {
-      profile: z.string().describe("Profile name to activate (case-insensitive)"),
+      profile: z.string().describe("Profile name to activate (case-insensitive, e.g. 'qa', 'prod')"),
     },
     async ({ profile }) => {
       const profiles = getProfiles();
-      const match = profiles.find(p => p.name.toLowerCase() === profile.trim().toLowerCase());
+      const match    = profiles.find(p => p.name === profile.trim().toLowerCase());
       if (!match) {
         const names = profiles.map(p => `'${p.name}'`).join(", ");
         return {
-          content: [{
-            type: "text",
-            text: `❌ Profile '${profile}' not found.\nAvailable: ${names}`,
-          }],
+          content: [{ type: "text", text: `❌ Profile '${profile}' not found.\nAvailable: ${names}` }],
         };
       }
 
       client.updateConfig({ token: match.token, database: match.database, region: match.region });
+      client.setActiveProfileName(match.name);
       const cfg = client.getPublicConfig();
 
       return {
@@ -120,7 +63,58 @@ export function registerCredentialsTools(server: McpServer, client: TmoClient) {
             `  Token:    ${cfg.token}`,
             `  Database: ${cfg.database}`,
             `  Region:   ${cfg.region}`,
-            `  Base URL: ${cfg.baseUrl}`,
+          ].join("\n"),
+        }],
+      };
+    }
+  );
+
+  // ── Get current credentials ────────────────────────────────────────────────
+
+  server.tool(
+    "tmo_get_credentials",
+    "Show the currently active TMO API credentials (token is masked for security).",
+    {},
+    async () => {
+      const cfg   = client.getPublicConfig();
+      const lines = [
+        "**Active TMO credentials**",
+        ...(cfg.profile ? [`  Profile:  ${cfg.profile}`] : ["  Profile:  (manually set)"]),
+        `  Token:    ${cfg.token}`,
+        `  Database: ${cfg.database}`,
+        `  Region:   ${cfg.region}`,
+      ];
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  // ── Manual one-off override ────────────────────────────────────────────────
+
+  server.tool(
+    "tmo_set_credentials",
+    "Manually override the active TMO token, database, and/or region. "
+    + "Prefer tmo_switch_profile for named environments. "
+    + "Only supply the fields you want to change.",
+    {
+      token:    z.string().optional().describe("API token"),
+      database: z.string().optional().describe("Database name"),
+      region:   z.enum(["us", "ca", "aus"]).optional().describe("Region (default: us)"),
+    },
+    async ({ token, database, region }) => {
+      if (!token && !database && !region) {
+        return { content: [{ type: "text", text: "⚠️  No fields provided — nothing changed." }] };
+      }
+      client.updateConfig({ token, database, region });
+      client.setActiveProfileName(undefined);
+      const cfg = client.getPublicConfig();
+      return {
+        content: [{
+          type: "text",
+          text: [
+            "✅ Credentials updated.",
+            `  Token:    ${cfg.token}`,
+            `  Database: ${cfg.database}`,
+            `  Region:   ${cfg.region}`,
           ].join("\n"),
         }],
       };

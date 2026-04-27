@@ -1,8 +1,8 @@
 export type Region = "us" | "ca" | "aus";
 
 const BASE_URLS: Record<Region, string> = {
-  us: "https://api.themortgageoffice.com",
-  ca: "https://api-ca.themortgageoffice.com",
+  us:  "https://api.themortgageoffice.com",
+  ca:  "https://api-ca.themortgageoffice.com",
   aus: "https://api-aus.themortgageoffice.com",
 };
 
@@ -11,65 +11,69 @@ export function getBaseUrl(region: Region = "us"): string {
 }
 
 export interface TmoConfig {
-  token: string;
-  database: string;
-  region: Region;
+  token:     string;
+  database:  string;
+  region:    Region;
   pageSize?: number;
 }
 
 export interface TmoProfile {
-  name: string;
-  token: string;
+  name:     string;
+  token:    string;
   database: string;
-  region: Region;
-}
-
-export function getConfig(): TmoConfig {
-  const token = process.env.TMO_TOKEN;
-  const database = process.env.TMO_DATABASE;
-  const region = (process.env.TMO_REGION as Region) || "us";
-
-  if (!token) throw new Error("TMO_TOKEN environment variable is required");
-  if (!database) throw new Error("TMO_DATABASE environment variable is required");
-
-  return { token, database, region, pageSize: 100 };
+  region:   Region;
 }
 
 /**
- * Discovers named profiles from environment variables.
+ * Resolves startup credentials.
+ * Falls back to sandbox so the server always starts — real calls will 401
+ * until you switch to a valid profile via tmo_switch_profile.
+ */
+export function getConfig(): TmoConfig {
+  const token    = process.env.TMO_TOKEN;
+  const database = process.env.TMO_DATABASE;
+  const region   = (process.env.TMO_REGION as Region) ?? "us";
+
+  if (token && database) return { token, database, region, pageSize: 100 };
+
+  // Fall back to sandbox so startup never crashes
+  return { token: "TMO", database: "API Sandbox", region: "us", pageSize: 100 };
+}
+
+/**
+ * Reads named profiles from a single TMO_PROFILES env var (JSON object).
  *
- * Convention:  TMO_TOKEN_<NAME>    and  TMO_DATABASE_<NAME>
- * Optional:    TMO_REGION_<NAME>
+ * Set this once in Railway (or your .env) — no redeploy needed to switch:
  *
- * Example:
- *   TMO_TOKEN_SANDBOX=TMO
- *   TMO_DATABASE_SANDBOX=API Sandbox
- *   TMO_TOKEN_PROD=<your token>
- *   TMO_DATABASE_PROD=001-5533-000-AM Team
+ *   TMO_PROFILES={"qa":{"token":"ABSWEB","database":"ABS QA Main"},"prod":{"token":"...","database":"..."}}
  *
- * The built-in "sandbox" profile (Token=TMO, Database=API Sandbox) is
- * always available even if not defined in env.
+ * Optionally include "region": "us" | "ca" | "aus" per profile (defaults to "us").
+ * The built-in "sandbox" profile is always available.
  */
 export function getProfiles(): TmoProfile[] {
   const profiles: TmoProfile[] = [
-    // Built-in sandbox shortcut
     { name: "sandbox", token: "TMO", database: "API Sandbox", region: "us" },
   ];
 
-  // Scan env for TMO_TOKEN_<NAME> pairs
-  const seen = new Set<string>(["sandbox"]);
-  for (const key of Object.keys(process.env)) {
-    const match = key.match(/^TMO_TOKEN_(.+)$/);
-    if (!match) continue;
-    const name = match[1].toLowerCase();
-    if (seen.has(name)) continue;
-    const token = process.env[key] ?? "";
-    const database = process.env[`TMO_DATABASE_${match[1]}`] ?? "";
-    const region = ((process.env[`TMO_REGION_${match[1]}`] as Region) || "us");
-    if (token && database) {
-      profiles.push({ name, token, database, region });
-      seen.add(name);
-    }
+  const raw = process.env.TMO_PROFILES;
+  if (!raw) return profiles;
+
+  let parsed: Record<string, { token: string; database: string; region?: string }>;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.error("TMO_PROFILES is not valid JSON — ignoring.");
+    return profiles;
+  }
+
+  for (const [name, cfg] of Object.entries(parsed)) {
+    if (!cfg.token || !cfg.database) continue;
+    profiles.push({
+      name:     name.toLowerCase(),
+      token:    cfg.token,
+      database: cfg.database,
+      region:   (cfg.region as Region) ?? "us",
+    });
   }
 
   return profiles;

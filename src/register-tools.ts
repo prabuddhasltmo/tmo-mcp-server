@@ -1,11 +1,7 @@
-/**
- * Registers all TMO API tool groups on a McpServer instance.
- * Called with a per-connection TmoClient so the HTTP server can
- * isolate credentials across concurrent sessions.
- */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { TmoClient } from "./client.js";
 
+import { registerCredentialsTools } from "./tools/credentials.js";
 import { registerLosTools } from "./tools/los.js";
 import { registerLssLoanTools } from "./tools/lss-loans.js";
 import { registerLssPaymentTools } from "./tools/lss-payments.js";
@@ -25,6 +21,7 @@ import { registerSharesTools } from "./tools/shares.js";
 import { registerCapitalTools } from "./tools/capital.js";
 
 export function registerAllTools(server: McpServer, client: TmoClient): void {
+  registerCredentialsTools(server, client);
   registerLosTools(server, client);
   registerLssLoanTools(server, client);
   registerLssPaymentTools(server, client);

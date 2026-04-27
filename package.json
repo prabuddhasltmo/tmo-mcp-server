@@ -8,8 +8,6 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "start:http": "node dist/http-server.js",
-    "start:oauth": "node dist/http-server-oauth.js",
-    "dev:oauth": "tsx src/http-server-oauth.ts",
     "dev": "tsx src/index.ts",
     "dev:http": "tsx src/http-server.ts"
   },

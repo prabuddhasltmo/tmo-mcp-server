@@ -10,9 +10,10 @@ export interface TmoResponse<T = unknown> {
 export class TmoClient {
   private config: TmoConfig;
   private baseUrl: string;
+  private activeProfileName?: string;
 
   constructor(config?: TmoConfig) {
-    this.config = config ?? getConfig();
+    this.config  = config ?? getConfig();
     this.baseUrl = getBaseUrl(this.config.region);
   }
 
@@ -23,30 +24,46 @@ export class TmoClient {
     if (patch.token    !== undefined) this.config.token    = patch.token;
     if (patch.database !== undefined) this.config.database = patch.database;
     if (patch.region   !== undefined) {
-      this.config.region  = patch.region;
-      this.baseUrl        = getBaseUrl(patch.region);
+      this.config.region = patch.region;
+      this.baseUrl       = getBaseUrl(patch.region);
     }
+  }
+
+  /** Track which named profile is currently active (undefined when set manually). */
+  setActiveProfileName(name: string | undefined): void {
+    this.activeProfileName = name;
+  }
+
+  /** Return the name of the active profile, or undefined if credentials were set manually. */
+  getActiveProfileName(): string | undefined {
+    return this.activeProfileName;
   }
 
   /**
    * Return the current config, masking most of the token for display.
    * e.g. "ABS WEB" → "AB*****"
    */
-  getPublicConfig(): { token: string; database: string; region: string; baseUrl: string } {
-    const t = this.config.token;
+  getPublicConfig(): { token: string; database: string; region: string; baseUrl: string; profile?: string } {
+    const t      = this.config.token;
     const masked = t.length <= 3 ? "*".repeat(t.length) : t.slice(0, 2) + "*".repeat(t.length - 2);
     return {
       token:    masked,
       database: this.config.database,
       region:   this.config.region,
       baseUrl:  this.baseUrl,
+      ...(this.activeProfileName !== undefined && { profile: this.activeProfileName }),
     };
+  }
+
+  /** Return the raw (unmasked) config — only used by credential tools. */
+  getRawConfig(): TmoConfig {
+    return { ...this.config };
   }
 
   private buildHeaders(extra?: Record<string, string>): Record<string, string> {
     return {
       "Content-Type": "application/json",
-      Token: this.config.token,
+      Token:    this.config.token,
       Database: this.config.database,
       ...extra,
     };
@@ -68,7 +85,7 @@ export class TmoClient {
       paginationHeaders
         ? {
             PageSize: String(paginationHeaders.pageSize ?? this.config.pageSize ?? 100),
-            Offset: String(paginationHeaders.offset ?? 0),
+            Offset:   String(paginationHeaders.offset ?? 0),
           }
         : undefined
     );
@@ -79,25 +96,25 @@ export class TmoClient {
 
   async post<T = unknown>(path: string, body: unknown): Promise<TmoResponse<T>> {
     const res = await fetch(`${this.baseUrl}${path}`, {
-      method: "POST",
+      method:  "POST",
       headers: this.buildHeaders(),
-      body: JSON.stringify(body),
+      body:    JSON.stringify(body),
     });
     return res.json() as Promise<TmoResponse<T>>;
   }
 
   async patch<T = unknown>(path: string, body: unknown): Promise<TmoResponse<T>> {
     const res = await fetch(`${this.baseUrl}${path}`, {
-      method: "PATCH",
+      method:  "PATCH",
       headers: this.buildHeaders(),
-      body: JSON.stringify(body),
+      body:    JSON.stringify(body),
     });
     return res.json() as Promise<TmoResponse<T>>;
   }
 
   async delete<T = unknown>(path: string): Promise<TmoResponse<T>> {
     const res = await fetch(`${this.baseUrl}${path}`, {
-      method: "DELETE",
+      method:  "DELETE",
       headers: this.buildHeaders(),
     });
     return res.json() as Promise<TmoResponse<T>>;
