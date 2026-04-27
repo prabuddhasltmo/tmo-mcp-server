@@ -10,10 +10,6 @@
  *                  {"qa":{"token":"ABSWEB","database":"ABS QA Main"},
  *                   "prod":{"token":"...","database":"..."}}
  *   PORT         – port (default: 3000)
- *
- * Adding to Claude (Settings → Integrations → Add custom integration):
- *   URL:    https://tmo-mcp-server-production.up.railway.app/mcp
- *   Header: Authorization = Bearer <API_KEY>
  */
 
 import { randomUUID } from "node:crypto";
@@ -27,14 +23,15 @@ import type { Region } from "./config.js";
 const PORT    = Number(process.env.PORT ?? 3000);
 const API_KEY = process.env.API_KEY;
 
-// Single shared client — credential switches via tmo_switch_profile persist
-// for the lifetime of the server process (survive across requests).
 const sharedClient = new TmoClient({
   token:    process.env.TMO_TOKEN    ?? "",
   database: process.env.TMO_DATABASE ?? "",
   region:   (process.env.TMO_REGION  ?? "us") as Region,
   pageSize: 100,
 });
+
+// Session store — keeps transport alive across multiple requests in one session
+const sessions = new Map<string, StreamableHTTPServerTransport>();
 
 const app = express();
 app.use(express.json());
@@ -43,28 +40,45 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", server: "tmo-api", version: "1.0.0" });
 });
 
+function isAuthorized(req: express.Request): boolean {
+  if (!API_KEY) return true;
+  const provided = (Array.isArray(req.headers["authorization"])
+    ? req.headers["authorization"][0]
+    : req.headers["authorization"] ?? "");
+  return provided.replace(/^Bearer\s+/i, "").trim() === API_KEY;
+}
+
 app.all("/mcp", async (req, res) => {
-  if (API_KEY) {
-    const provided = (Array.isArray(req.headers["authorization"])
-      ? req.headers["authorization"][0]
-      : req.headers["authorization"] ?? "");
-    if (provided.replace(/^Bearer\s+/i, "").trim() !== API_KEY) {
-      res.status(401).json({ error: "Invalid or missing API key." });
-      return;
-    }
+  if (!isAuthorized(req)) {
+    res.status(401).json({ error: "Invalid or missing API key." });
+    return;
   }
 
-  const server = new McpServer({ name: "tmo-api", version: "1.0.0" });
+  const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+  // Reuse existing transport for this session
+  if (sessionId && sessions.has(sessionId)) {
+    const transport = sessions.get(sessionId)!;
+    await transport.handleRequest(req, res, req.body);
+    return;
+  }
+
+  // New session — create server + transport
+  const server    = new McpServer({ name: "tmo-api", version: "1.0.0" });
   registerAllTools(server, sharedClient);
 
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
+    onsessioninitialized: (id) => {
+      sessions.set(id, transport);
+    },
   });
 
-  res.on("close", () => {
-    transport.close().catch(() => {});
+  // Clean up session when it closes
+  transport.onclose = () => {
+    if (sessionId) sessions.delete(sessionId);
     server.close().catch(() => {});
-  });
+  };
 
   await server.connect(transport);
   await transport.handleRequest(req, res, req.body);
